@@ -1,1 +1,1 @@
-pytorch
+opencv-python

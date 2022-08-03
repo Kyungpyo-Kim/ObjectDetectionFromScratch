@@ -27,12 +27,8 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, device):
     grid = np.arange(grid_size)
     grid_x, grid_y = np.meshgrid(grid, grid)
 
-    x_offset = torch.FloatTensor(grid_x).view(-1, 1)
-    y_offset = torch.FloatTensor(grid_y).view(-1, 1)
-
-    if CUDA:
-        x_offset = x_offset.cuda()
-        y_offset = y_offset.cuda()
+    x_offset = torch.FloatTensor(grid_x).view(-1, 1).to(device)
+    y_offset = torch.FloatTensor(grid_y).view(-1, 1).to(device)
 
     x_y_offset = (
         torch.cat((x_offset, y_offset), 1)

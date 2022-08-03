@@ -35,11 +35,11 @@ def parse_cfg(cfg_file):
     Returns a list of blocks
     Each block describes a block in the neural network
     """
-    file = open(cfg_file, "r")
-    lines = file.read().split("\n")
-    lines = [line for line in lines if len(line) > 0]
-    lines = [line for line in lines if line[0] != "#"]
-    lines = [line.rstrip().lstrip() for line in lines]
+    with open(cfg_file, "r") as file:
+        lines = file.read().split("\n")
+        lines = [line for line in lines if len(line) > 0]
+        lines = [line for line in lines if line[0] != "#"]
+        lines = [line.rstrip().lstrip() for line in lines]
 
     block = {}
     blocks = []
@@ -99,7 +99,14 @@ def create_modules(
                 pad = 0
 
             # add convolutional layer
-            conv = Conv2d(prev_filters, filters, kernel_size, stride, pad, bias)
+            conv = Conv2d(
+                in_channels=prev_filters,
+                out_channels=filters,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=pad,
+                bias=bias,
+            )
             module.add_module(f"conv_{idx:0d}", conv)
 
             # add batch normalization layer
@@ -170,12 +177,16 @@ def test_create_modules():
 class Darknet(Module):
     """Darknet is a YOLOv3 neural network"""
 
-    def __init__(self, cfg_file):
+    def __init__(self, cfg_file, device="cpu"):
         super().__init__()
         self.blocks = parse_cfg(cfg_file)
         self.net_info, self.module_list = create_modules(self.blocks)
+        self.device = device
+        self.header = None
+        self.seen = None
 
-    def forward(self, x, device):
+    def forward(self, x):
+        """forward"""
         modules = self.blocks[1:]
         outputs = {}  # We cache the outputs for the route layer
 
@@ -183,12 +194,12 @@ class Darknet(Module):
         for idx, module in enumerate(modules):
             module_type = module["type"]
 
-            if module_type == "convolutional" or module_type == "upsample":
+            if module_type in "convolutional" or module_type in "upsample":
                 x = self.module_list[idx](x)
 
-            elif module_type == "route":
+            elif module_type in "route":
                 layers = module["layers"]
-                layers = [int(a) for a in layers]
+                layers = [int(layer) for layer in layers.split(",")]
 
                 if (layers[0]) > 0:
                     layers[0] = layers[0] - idx
@@ -205,11 +216,11 @@ class Darknet(Module):
 
                     x = torch.cat((map1, map2), 1)
 
-            elif module_type == "shortcut":
+            elif module_type in "shortcut":
                 from_ = int(module["from"])
                 x = outputs[idx - 1] + outputs[idx + from_]
 
-            elif module_type == "yolo":
+            elif module_type in "yolo":
 
                 anchors = self.module_list[idx][0].anchors
                 # Get the input dimensions
@@ -220,7 +231,7 @@ class Darknet(Module):
 
                 # Transform
                 x = x.data
-                x = predict_transform(x, inp_dim, anchors, num_classes, device)
+                x = predict_transform(x, inp_dim, anchors, num_classes, self.device)
                 if not write:  # if no collector has been intialised.
                     detections = x
                     write = 1
@@ -232,22 +243,118 @@ class Darknet(Module):
 
         return detections
 
+    def load_weights(self, weightfile):
+        """load_weights"""
+        with open(weightfile, "rb") as file:
+            # The first 5 values are header information
+            # 1. Major version number
+            # 2. Minor Version Number
+            # 3. Subversion number
+            # 4,5. Images seen by the network (during training)
+            header = np.fromfile(file, dtype=np.int32, count=5)
+            self.header = torch.from_numpy(header)
+            self.seen = self.header[3]
+
+            weights = np.fromfile(file, dtype=np.float32)
+
+        ptr = 0
+        for i in range(len(self.module_list)):
+            module_type = self.blocks[i + 1]["type"]
+
+            # If module_type is convolutional load weights
+            # Otherwise ignore.
+            if module_type in "convolutional":
+                model = self.module_list[i]
+
+                if int(self.blocks[i + 1].get("batch_normalize", "0")):
+                    batch_normalize = int(self.blocks[i + 1]["batch_normalize"])
+                else:
+                    batch_normalize = 0
+
+                conv = model[0]
+
+                if batch_normalize:
+                    bn = model[1]
+
+                    # Get the number of weights of Batch Norm Layer
+                    num_bn_biases = bn.bias.numel()
+
+                    # Load the weights
+                    bn_biases = torch.from_numpy(weights[ptr : ptr + num_bn_biases])
+                    ptr += num_bn_biases
+
+                    bn_weights = torch.from_numpy(weights[ptr : ptr + num_bn_biases])
+                    ptr += num_bn_biases
+
+                    bn_running_mean = torch.from_numpy(
+                        weights[ptr : ptr + num_bn_biases]
+                    )
+                    ptr += num_bn_biases
+
+                    bn_running_var = torch.from_numpy(
+                        weights[ptr : ptr + num_bn_biases]
+                    )
+                    ptr += num_bn_biases
+
+                    # Cast the loaded weights into dims of model weights.
+                    bn_biases = bn_biases.view_as(bn.bias.data)
+                    bn_weights = bn_weights.view_as(bn.weight.data)
+                    bn_running_mean = bn_running_mean.view_as(bn.running_mean)
+                    bn_running_var = bn_running_var.view_as(bn.running_var)
+
+                    # Copy the data to model
+                    bn.bias.data.copy_(bn_biases)
+                    bn.weight.data.copy_(bn_weights)
+                    bn.running_mean.copy_(bn_running_mean)
+                    bn.running_var.copy_(bn_running_var)
+
+                else:
+                    # Number of biases
+                    num_biases = conv.bias.numel()
+
+                    # Load the weights
+                    conv_biases = torch.from_numpy(weights[ptr : ptr + num_biases])
+                    ptr = ptr + num_biases
+
+                    # reshape the loaded weights according to the dims of the
+                    # model weights
+                    conv_biases = conv_biases.view_as(conv.bias.data)
+
+                    # Finally copy the data
+                    conv.bias.data.copy_(conv_biases)
+
+                # Let us load the weights for the Convolutional layers
+                num_weights = conv.weight.numel()
+
+                # Do the same as above for weights
+                conv_weights = torch.from_numpy(weights[ptr : ptr + num_weights])
+                ptr = ptr + num_weights
+
+                conv_weights = conv_weights.view_as(conv.weight.data)
+                conv.weight.data.copy_(conv_weights)
+
 
 def get_test_input():
+    """get_test_input"""
     img = cv2.imread("dog-cycle-car.png")
-    img = cv2.resize(img, (416, 416))  # Resize to the input dimension
+    img = cv2.resize(img, (608, 608))
     img_ = img[:, :, ::-1].transpose((2, 0, 1))  # BGR -> RGB | H X W C -> C X H X W
-    img_ = (
-        img_[np.newaxis, :, :, :] / 255.0
-    )  # Add a channel at 0 (for batch) | Normalise
+    img_ = img_[np.newaxis, :, :, :] / 255.0
     img_ = torch.from_numpy(img_).float()  # Convert to float
     img_ = Variable(img_)  # Convert to Variable
     return img_
 
 
 if __name__ == "__main__":
-    model = Darknet("cfg/yolov3.cfg")
+    torch.cuda.empty_cache()
+    device_ = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    model = Darknet("cfg/yolov3.cfg", device_)
+    model.to(device_)
+    model.load_weights("cfg/yolov3.weights")
+
     inp = get_test_input()
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    pred = model(inp, device)
-    print(pred)
+    inp = inp.to(device_)
+
+    pred = model(inp)
+    print(pred.shape)
