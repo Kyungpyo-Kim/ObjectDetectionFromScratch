@@ -14,6 +14,11 @@ wget https://pjreddie.com/media/files/yolov3.weights
 # Invoke-WebRequest -Uri https://pjreddie.com/media/files/yolov3.weights  -OutFile yolov3.weights
 wget https://raw.githubusercontent.com/pjreddie/darknet/master/cfg/yolov3.cfg
 # Invoke-WebRequest -Uri https://raw.githubusercontent.com/pjreddie/darknet/master/cfg/yolov3.cfg  -OutFile yolov3.cfg
+
+mkdir data
+cd data
+wget https://raw.githubusercontent.com/ayooshkathuria/YOLO_v3_tutorial_from_scratch/master/data/coco.names
+# Invoke-WebRequest -Uri https://raw.githubusercontent.com/ayooshkathuria/YOLO_v3_tutorial_from_scratch/master/data/coco.names -OutFile coco.names
 ```
 
 
