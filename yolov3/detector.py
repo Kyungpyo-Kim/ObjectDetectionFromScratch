@@ -7,10 +7,9 @@ import pickle as pkl
 import random
 import sys
 import torch
-from torch.autograd import Variable
 import cv2
 from util import load_classes, write_results, prep_image
-from darknet import Darknet
+from yolov3 import Yolov3
 import pandas as pd
 
 
@@ -82,7 +81,7 @@ num_classes = len(classes)  # For COCO
 
 # Set up the neural network
 print("Loading network.....")
-model = Darknet(args.cfgfile, device)
+model = Yolov3(args.cfgfile, device)
 model.load_weights(args.weightsfile)
 print("Network successfully loaded")
 
@@ -101,7 +100,7 @@ except NotADirectoryError:
     imlist = []
     imlist.append(osp.join(osp.realpath("."), images))
 except FileNotFoundError:
-    print("No file or directory with the name {}".format(images))
+    print(f"No file or directory with the name {images}")
     sys.exit()
 
 if not os.path.exists(args.det):
@@ -130,60 +129,57 @@ if batch_size != 1:
     ]
 
 write = 0
+model.to(device)
 start_det_loop = time.time()
-for i, batch in enumerate(im_batches):
-    # load the image
-    start = time.time()
-    batch = batch.to(device)
+with torch.no_grad():
+    for i, batch in enumerate(im_batches):
+        # load the image
+        start = time.time()
+        batch = batch.to(device)
+        prediction = model(batch)
 
-    model.to(device)
-    batch_ = Variable(batch, volatile=True).to(device)
-    prediction = model(batch_)
+        prediction = write_results(
+            prediction, confidence, num_classes, nms_conf=nms_thesh
+        )
 
-    prediction = write_results(prediction, confidence, num_classes, nms_conf=nms_thesh)
+        end = time.time()
 
-    end = time.time()
+        if isinstance(prediction, int):
 
-    if isinstance(prediction, int):
+            for im_num, image in enumerate(
+                imlist[i * batch_size : min((i + 1) * batch_size, len(imlist))]
+            ):
+                im_id = i * batch_size + im_num
+                print(
+                    f"{image.split('/')[-1]:20s} predicted in {(end - start) / batch_size:6.3f} seconds"
+                )
+                print(f"{'Objects Detected:':20s}")
+                print("----------------------------------------------------------")
+            continue
+
+        prediction[:, 0] += (
+            i * batch_size
+        )  # transform the atribute from index in batch to index in imlist
+
+        if not write:  # If we have't initialised output
+            output = prediction
+            write = 1
+        else:
+            output = torch.cat((output, prediction))
 
         for im_num, image in enumerate(
             imlist[i * batch_size : min((i + 1) * batch_size, len(imlist))]
         ):
             im_id = i * batch_size + im_num
+            objs = [classes[int(x[-1])] for x in output if int(x[0]) == im_id]
             print(
-                "{0:20s} predicted in {1:6.3f} seconds".format(
-                    image.split("/")[-1], (end - start) / batch_size
-                )
+                f"{image.split('/')[-1]:20s} predicted in {(end - start) / batch_size:6.3f} seconds"
             )
-            print("{0:20s} {1:s}".format("Objects Detected:", ""))
+            print(f"{'Objects Detected:':20s} {' '.join(objs):s}")
             print("----------------------------------------------------------")
-        continue
 
-    prediction[:, 0] += (
-        i * batch_size
-    )  # transform the atribute from index in batch to index in imlist
-
-    if not write:  # If we have't initialised output
-        output = prediction
-        write = 1
-    else:
-        output = torch.cat((output, prediction))
-
-    for im_num, image in enumerate(
-        imlist[i * batch_size : min((i + 1) * batch_size, len(imlist))]
-    ):
-        im_id = i * batch_size + im_num
-        objs = [classes[int(x[-1])] for x in output if int(x[0]) == im_id]
-        print(
-            "{0:20s} predicted in {1:6.3f} seconds".format(
-                image.split("/")[-1], (end - start) / batch_size
-            )
-        )
-        print("{0:20s} {1:s}".format("Objects Detected:", " ".join(objs)))
-        print("----------------------------------------------------------")
-
-    # if "cuda" in device:
-    torch.cuda.synchronize()
+        # if "cuda" in device:
+        torch.cuda.synchronize()
 
 try:
     output
@@ -252,21 +248,16 @@ end = time.time()
 
 print("SUMMARY")
 print("----------------------------------------------------------")
-print("{:25s}: {}".format("Task", "Time Taken (in seconds)"))
+print(f"{'Task':25s}: {'Time Taken (in seconds)'}")
 print()
-print("{:25s}: {:2.3f}".format("Reading addresses", load_batch - read_dir))
-print("{:25s}: {:2.3f}".format("Loading batch", start_det_loop - load_batch))
+print(f"{'Reading addresses':25s}: {load_batch - read_dir:2.3f}")
+print(f"{'Loading batch':25s}: {start_det_loop - load_batch:2.3f}")
 print(
-    "{:25s}: {:2.3f}".format(
-        "Detection (" + str(len(imlist)) + " images)", output_recast - start_det_loop
-    )
+    f"{'Detection (' + str(len(imlist)) + ' images)':25s}: {output_recast - start_det_loop:2.3f}"
 )
-print("{:25s}: {:2.3f}".format("Output Processing", class_load - output_recast))
-print("{:25s}: {:2.3f}".format("Drawing Boxes", end - draw))
-print(
-    "{:25s}: {:2.3f}".format("Average time_per_img", (end - load_batch) / len(imlist))
-)
+print(f"{'Output Processing':25s}: {class_load - output_recast:2.3f}")
+print(f"{'Drawing Boxes':25s}: {end - draw:2.3f}")
+print(f"{'Average time_per_img':25s}: {(end - load_batch) / len(imlist):2.3f}")
 print("----------------------------------------------------------")
-
 
 torch.cuda.empty_cache()

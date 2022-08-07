@@ -1,4 +1,4 @@
-""" darknet.py """
+""" yolov3.py """
 import torch
 from torch.nn import ModuleList
 from torch.nn import Sequential
@@ -12,7 +12,7 @@ from torch.autograd import Variable
 import numpy as np
 import cv2
 
-from util import predict_transform
+from util import transform_prediction
 
 CHANNEL_RGB = 3
 
@@ -174,8 +174,8 @@ def test_create_modules():
     print(create_modules(blocks))
 
 
-class Darknet(Module):
-    """Darknet is a YOLOv3 neural network"""
+class Yolov3(Module):
+    """Yolov3 is a YOLOv3 neural network"""
 
     def __init__(self, cfg_file, device="cpu"):
         super().__init__()
@@ -231,7 +231,7 @@ class Darknet(Module):
 
                 # Transform
                 x = x.data
-                x = predict_transform(x, inp_dim, anchors, num_classes, self.device)
+                x = transform_prediction(x, inp_dim, anchors, num_classes, self.device)
                 if not write:  # if no collector has been intialised.
                     detections = x
                     write = 1
@@ -258,16 +258,14 @@ class Darknet(Module):
             weights = np.fromfile(file, dtype=np.float32)
 
         ptr = 0
-        for i in range(len(self.module_list)):
-            module_type = self.blocks[i + 1]["type"]
+        for idx, model in enumerate(self.module_list):
+            module_type = self.blocks[idx + 1]["type"]
 
             # If module_type is convolutional load weights
             # Otherwise ignore.
             if module_type in "convolutional":
-                model = self.module_list[i]
-
-                if int(self.blocks[i + 1].get("batch_normalize", "0")):
-                    batch_normalize = int(self.blocks[i + 1]["batch_normalize"])
+                if int(self.blocks[idx + 1].get("batch_normalize", "0")):
+                    batch_normalize = int(self.blocks[idx + 1]["batch_normalize"])
                 else:
                     batch_normalize = 0
 
@@ -349,7 +347,7 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
     device_ = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    model = Darknet("cfg/yolov3.cfg", device_)
+    model = Yolov3("cfg/yolov3.cfg", device_)
     model.to(device_)
     model.load_weights("cfg/yolov3.weights")
 

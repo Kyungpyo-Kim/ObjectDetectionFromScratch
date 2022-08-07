@@ -19,6 +19,9 @@ mkdir data
 cd data
 wget https://raw.githubusercontent.com/ayooshkathuria/YOLO_v3_tutorial_from_scratch/master/data/coco.names
 # Invoke-WebRequest -Uri https://raw.githubusercontent.com/ayooshkathuria/YOLO_v3_tutorial_from_scratch/master/data/coco.names -OutFile coco.names
+
+python yolov3.py
+python detector.py --images dog-cycle-car.png --det det
 ```
 
 
