@@ -3,3 +3,6 @@ yolov3/env/*
 yolov3/__pycache__/*
 yolov3/cfg/*
 yolov3/env/*
+
+# detr
+detr/env/*
