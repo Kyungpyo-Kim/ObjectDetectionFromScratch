@@ -6,3 +6,4 @@ yolov3/env/*
 
 # detr
 detr/env/*
+detr/__pycache__/*
