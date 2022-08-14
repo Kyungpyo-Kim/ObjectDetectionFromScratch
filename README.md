@@ -1,8 +1,8 @@
 # Object Detection from Scratch
 
 ## Sub-projects
-* [yolov3](./yolov3)
-
+* [YOLOv3](./yolov3)
+* [DETR](./detr)
 ## Study
 
 ### Skip connection
