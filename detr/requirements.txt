@@ -3,3 +3,6 @@ torch
 torchvision
 torchaudio
 scipy
+jupyterlab
+pandas
+tqdm
