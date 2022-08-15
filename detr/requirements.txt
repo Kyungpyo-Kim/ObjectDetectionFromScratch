@@ -6,3 +6,7 @@ scipy
 jupyterlab
 pandas
 tqdm
+ipykernel
+ipywidgets
+opencv-python
+albumentations

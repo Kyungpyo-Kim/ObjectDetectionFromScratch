@@ -7,6 +7,7 @@ python -m venv ./env
 .\env\Scripts\Activate.ps1
 python -m pip install pip -U
 python -m pip install -r requirements.txt
+python -m ipykernel install --user --name env --display-name detr
 python detr.py
 ```
 
