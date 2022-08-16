@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import albumentations as A
 from albumentations.pytorch.transforms import ToTensorV2
-
+from torchvision.transforms import ToTensor
 
 def normalize_bbox(bbox, width, height):
     return [bbox[0] / width, bbox[1] / height, bbox[2] / width, bbox[3] / height]
@@ -21,6 +21,7 @@ class TrafficLightDataset(Dataset):
         self.dataframe = dataframe[dataframe["trainvaltest"] == self.trainvaltest]
         self.image_ids = list(self.dataframe.image_id.unique())
         self.transforms = transforms
+        self._transforms = ToTensor()
 
     def __len__(self) -> int:
         return len(self.image_ids)
@@ -36,6 +37,7 @@ class TrafficLightDataset(Dataset):
         image = cv2.imread(f"{self.base_path}/{image_name}", cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
         image /= 255.0
+        image = self._transforms(image)
 
         # bounding boxes in coco format
         labels = records["category_id"].values
@@ -65,8 +67,8 @@ class TrafficLightDataset(Dataset):
             target["image_id"] = torch.tensor([index])
 
             return image, target, image_id
-        else:
-            return image, target, image_id
+
+        return image, target, image_id
 
 
 def get_train_transforms():
@@ -89,7 +91,7 @@ def get_train_transforms():
             A.ToGray(p=0.01),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
-            A.Resize(height=512, width=512, p=1),
+            # A.Resize(height=512, width=512, p=1),
             A.Cutout(num_holes=8, max_h_size=64, max_w_size=64, fill_value=0, p=0.5),
             ToTensorV2(p=1.0),
         ],
@@ -102,7 +104,10 @@ def get_train_transforms():
 
 def get_valid_transforms():
     return A.Compose(
-        [A.Resize(height=512, width=512, p=1.0), ToTensorV2(p=1.0)],
+        [
+            # A.Resize(height=512, width=512, p=1.0), 
+            ToTensorV2(p=1.0),
+        ],
         p=1.0,
         bbox_params=A.BboxParams(
             format="coco", min_area=0, min_visibility=0, label_fields=["labels"]
@@ -117,7 +122,7 @@ def test():
     base_path = r"C:\Users\kyung\Downloads\images"
     dataframe = pd.read_csv(f"{base_path}/train.csv")
     transforms = A.Compose(
-        [], bbox_params=A.BboxParams(format="coco", label_fields=["class_labels"])
+        [], bbox_params=A.BboxParams(format="coco", label_fields=["labels"])
     )
 
     dataset = TrafficLightDataset(base_path, "train", dataframe, transforms)

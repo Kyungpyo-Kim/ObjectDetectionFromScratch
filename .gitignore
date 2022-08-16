@@ -1,9 +1,11 @@
 # yolov3
 yolov3/env/*
-yolov3/__pycache__/*
 yolov3/cfg/*
 yolov3/env/*
 
 # detr
 detr/env/*
-detr/__pycache__/*
+
+# common
+**/__pycache__/**
+**/.ipynb_checkpoints/**
