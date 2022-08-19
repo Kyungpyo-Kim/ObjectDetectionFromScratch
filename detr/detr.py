@@ -71,8 +71,20 @@ class Detr(nn.Module):
 
     def forward(self, inputs):
         """forward"""
+        print("forward 1 input")
+        print(type(inputs))
+        print(len(inputs))
+        print(inputs[0].shape)
+        print(type(inputs[0]))
+        print("forward 1 backbone")
+        print(self.backbone.conv1)
+
         x = self.backbone.conv1(inputs)
+        print("forward 2")
+
         x = self.backbone.bn1(x)
+        print("forward 3")
+
         x = self.backbone.relu(x)
         x = self.backbone.maxpool(x)
 
@@ -80,8 +92,10 @@ class Detr(nn.Module):
         x = self.backbone.layer2(x)
         x = self.backbone.layer3(x)
         x = self.backbone.layer4(x)
+        print("forward 4")
 
         x = self.conv(x)
+        print("forward 5")
 
         height, width = x.shape[-2:]
         pos = (
@@ -95,10 +109,12 @@ class Detr(nn.Module):
             .flatten(0, 1)
             .unsqueeze(1)
         )
+        print("forward 6")
 
         x = self.transformer(
             pos + 0.1 * x.flatten(2).permute(2, 0, 1), self.query_pos.unsqueeze(1)
         ).transpose(0, 1)
+        print("forward 7")
 
         return {
             "pred_logits": self.linear_class(x),
@@ -269,10 +285,14 @@ class SetCriterion(nn.Module):
              targets: list of dicts, such that len(targets) == batch_size.
                       The expected keys in each dict depends on the losses applied, see each loss' doc
         """
+        print("forward 1")
         outputs_without_aux = {k: v for k, v in outputs.items() if k != "aux_outputs"}
 
+        print("forward 2")
         # Retrieve the matching between the outputs of the last layer and the targets
         indices = self.matcher(outputs_without_aux, targets)
+
+        print("forward 3")
 
         # Compute the average number of target boxes accross all nodes, for normalization purposes
         num_boxes = sum(len(t["labels"]) for t in targets)
@@ -282,6 +302,8 @@ class SetCriterion(nn.Module):
         if is_dist_avail_and_initialized():
             torch.distributed.all_reduce(num_boxes)
         num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
+
+        print("forward 4")
 
         # Compute all the requested losses
         losses = {}
@@ -305,6 +327,7 @@ class SetCriterion(nn.Module):
                     )
                     l_dict = {k + f"_{i}": v for k, v in l_dict.items()}
                     losses.update(l_dict)
+        print("forward 5")
 
         return losses
 

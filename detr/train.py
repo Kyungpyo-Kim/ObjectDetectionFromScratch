@@ -48,11 +48,13 @@ def train_fn(
 
     for step, (images, targets, image_ids) in enumerate(tk0):
 
-        images = list(image.to(device) for image in images)
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        images = torch.stack(list(image.to(device) for image in images), dim=0)
+        targets = tuple({k: v.to(device) for k, v in t.items()} for t in targets)
 
+        print("output")
         output = model(images)
 
+        print("loss")
         loss_dict = criterion(output, targets)
         weight_dict = criterion.weight_dict
 
