@@ -8,12 +8,43 @@ detr.py
 import torch
 from torchvision.models import resnet50, ResNet50_Weights
 from torchvision import transforms
+import torch.nn.functional as F
 from torch import nn
 from PIL import Image
 import requests
 import time
 from matcher import HungarianMatcher
+import torch.distributed as dist
 
+@torch.no_grad()
+def accuracy(output, target, topk=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    if target.numel() == 0:
+        return [torch.zeros([], device=output.device)]
+    maxk = max(topk)
+    batch_size = target.size(0)
+
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0)
+        res.append(correct_k.mul_(100.0 / batch_size))
+    return res
+
+def is_dist_avail_and_initialized():
+    if not dist.is_available():
+        return False
+    if not dist.is_initialized():
+        return False
+    return True
+
+def get_world_size():
+    if not is_dist_avail_and_initialized():
+        return 1
+    return dist.get_world_size()
 
 class Detr(nn.Module):
     """DETR model."""
@@ -46,10 +77,10 @@ class Detr(nn.Module):
         self.linear_class = nn.Linear(hidden_dim, num_classes + 1)
         self.linear_bbox = nn.Linear(hidden_dim, 4)
 
-        self.query_pos = nn.Parameter(torch.rand(100, hidden_dim))
+        self.query_pos = nn.Parameter(torch.rand(128, hidden_dim))
 
-        self.row_embed = nn.Parameter(torch.rand(50, hidden_dim // 2))
-        self.col_embed = nn.Parameter(torch.rand(50, hidden_dim // 2))
+        self.row_embed = nn.Parameter(torch.rand(64, hidden_dim // 2))
+        self.col_embed = nn.Parameter(torch.rand(64, hidden_dim // 2))
 
         """ set image transforms """
         self.transform = transforms.Compose(
@@ -71,20 +102,8 @@ class Detr(nn.Module):
 
     def forward(self, inputs):
         """forward"""
-        print("forward 1 input")
-        print(type(inputs))
-        print(len(inputs))
-        print(inputs[0].shape)
-        print(type(inputs[0]))
-        print("forward 1 backbone")
-        print(self.backbone.conv1)
-
         x = self.backbone.conv1(inputs)
-        print("forward 2")
-
         x = self.backbone.bn1(x)
-        print("forward 3")
-
         x = self.backbone.relu(x)
         x = self.backbone.maxpool(x)
 
@@ -92,10 +111,7 @@ class Detr(nn.Module):
         x = self.backbone.layer2(x)
         x = self.backbone.layer3(x)
         x = self.backbone.layer4(x)
-        print("forward 4")
-
         x = self.conv(x)
-        print("forward 5")
 
         height, width = x.shape[-2:]
         pos = (
@@ -109,12 +125,10 @@ class Detr(nn.Module):
             .flatten(0, 1)
             .unsqueeze(1)
         )
-        print("forward 6")
 
         x = self.transformer(
             pos + 0.1 * x.flatten(2).permute(2, 0, 1), self.query_pos.unsqueeze(1)
         ).transpose(0, 1)
-        print("forward 7")
 
         return {
             "pred_logits": self.linear_class(x),
@@ -167,6 +181,10 @@ class SetCriterion(nn.Module):
         )
         target_classes[idx] = target_classes_o
 
+        print("-1-", target_classes.shape)
+        print("-2-", src_logits.shape)
+        print("-3-", src_logits.transpose(1, 2).shape)
+        print("-4-", src_logits.shape)
         loss_ce = F.cross_entropy(
             src_logits.transpose(1, 2), target_classes, self.empty_weight
         )
@@ -285,14 +303,10 @@ class SetCriterion(nn.Module):
              targets: list of dicts, such that len(targets) == batch_size.
                       The expected keys in each dict depends on the losses applied, see each loss' doc
         """
-        print("forward 1")
         outputs_without_aux = {k: v for k, v in outputs.items() if k != "aux_outputs"}
 
-        print("forward 2")
         # Retrieve the matching between the outputs of the last layer and the targets
         indices = self.matcher(outputs_without_aux, targets)
-
-        print("forward 3")
 
         # Compute the average number of target boxes accross all nodes, for normalization purposes
         num_boxes = sum(len(t["labels"]) for t in targets)
@@ -302,8 +316,6 @@ class SetCriterion(nn.Module):
         if is_dist_avail_and_initialized():
             torch.distributed.all_reduce(num_boxes)
         num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
-
-        print("forward 4")
 
         # Compute all the requested losses
         losses = {}

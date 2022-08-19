@@ -51,7 +51,6 @@ def train_fn(
         images = torch.stack(list(image.to(device) for image in images), dim=0)
         targets = tuple({k: v.to(device) for k, v in t.items()} for t in targets)
 
-        print("output")
         output = model(images)
 
         print("loss")
@@ -81,7 +80,7 @@ def collate_fn(batch):
 
 def main():
     # Load the data
-    BATCH_SIZE = 4
+    BATCH_SIZE = 1
     EPOCHS = 1
     num_classes = 4
     base_path = r"C:\Users\kyung\Downloads\images"
@@ -118,7 +117,8 @@ def main():
 
     # optimizer
     learning_rate = 2e-5
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.SGD(model.parameters() , lr=learning_rate)
 
     best_loss = 10**5
     for epoch in range(EPOCHS):

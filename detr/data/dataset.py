@@ -22,6 +22,7 @@ class TrafficLightDataset(Dataset):
         self.image_ids = list(self.dataframe.image_id.unique())
         self.transforms = transforms
         self._transforms = ToTensor()
+        self.scale = 0.5
 
     def __len__(self) -> int:
         return len(self.image_ids)
@@ -35,6 +36,8 @@ class TrafficLightDataset(Dataset):
         image_name = records.image_name.unique()[0]
 
         image = cv2.imread(f"{self.base_path}/{image_name}", cv2.IMREAD_COLOR)
+        height, width, _ = image.shape
+        image = cv2.resize(image, (int(width*self.scale), int(height*self.scale)))
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB).astype(np.float32)
         image /= 255.0
         image = self._transforms(image)
